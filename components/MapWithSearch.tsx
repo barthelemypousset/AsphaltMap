@@ -1,20 +1,26 @@
 import Constants from "expo-constants";
 import * as Location from "expo-location";
 import React, { useEffect, useRef, useState } from "react";
-import { Alert, Platform, StyleSheet, Text, TextInput, TouchableOpacity, View } from "react-native";
+import {
+  Alert,
+  Keyboard,
+  KeyboardAvoidingView,
+  Platform,
+  Pressable,
+  StyleSheet,
+  Text,
+  TextInput,
+  TouchableWithoutFeedback,
+  View,
+} from "react-native";
 import MapView, { Marker, Polyline, PROVIDER_GOOGLE, UrlTile } from "react-native-maps";
 import { ThemedView } from "./themed-view";
+import { CircleX, MapPinPlus, MapPlus, Search, Send } from "lucide-react-native";
 
 const MAPBOX_ACCESS_TOKEN = Constants.expoConfig?.extra?.MAPBOX_ACCESS_TOKEN;
 
-// !!! IMPORTANT !!!
-// Replace this with your computer's local network IP address.
-// On macOS, find it in System Settings > Wi-Fi > Details.
-// On Windows, run `ipconfig` in Command Prompt.
 const BACKEND_IP_ADDRESS = Constants.expoConfig?.extra?.BACKEND_IP_ADDRESS;
 const BACKEND_URL = `http://${BACKEND_IP_ADDRESS}:8000`;
-
-console.log(BACKEND_IP_ADDRESS);
 
 // Default region to center the map (e.g., Paris, France)
 const DEFAULT_REGION = {
@@ -30,14 +36,15 @@ export function MapWithSearch() {
   const [startLocation, setStartLocation] = useState("");
   const [endLocation, setEndLocation] = useState("");
   const [startCoords, setStartCoords] = useState<Coords | null>(null);
+  const [endCoords, setEndCoords] = useState<Coords | null>(null);
   const [isDestinationFocused, setIsDestinationFocused] = useState(false);
   const [showStartInput, setShowStartInput] = useState(false);
-  const [endCoords, setEndCoords] = useState<Coords | null>(null);
   const [routeCoordinates, setRouteCoordinates] = useState<Coords[]>([]);
 
   const mapRef = useRef<MapView>(null);
   const userLocation = useRef<Coords | null>(null);
 
+  // Get user geolocation
   useEffect(() => {
     const requestLocation = async () => {
       const { status } = await Location.requestForegroundPermissionsAsync();
@@ -67,6 +74,7 @@ export function MapWithSearch() {
     requestLocation();
   }, []);
 
+  // Get coordinates of searched location
   const geocode = async (address: string): Promise<Coords | null> => {
     if (address.toLowerCase() === "my location" && userLocation.current) {
       return userLocation.current;
@@ -89,6 +97,7 @@ export function MapWithSearch() {
     return null;
   };
 
+  // Launch the search
   const handleGetRoute = async () => {
     if (!startLocation.trim() || !endLocation.trim()) {
       Alert.alert("Missing information", "Please fill in both start and end locations.");
@@ -103,21 +112,15 @@ export function MapWithSearch() {
     if (start) setStartCoords(start);
     if (end) setEndCoords(end);
 
+    // Set position of the map on screen
     if (start && end) {
       mapRef.current?.fitToCoordinates([start, end], {
         edgePadding: { top: 50, right: 50, bottom: 150, left: 50 },
         animated: true,
       });
 
+      // Try to get the route via our routing engine backend
       try {
-        if (BACKEND_IP_ADDRESS === "YOUR_COMPUTER_IP_ADDRESS") {
-          Alert.alert(
-            "Configuration needed",
-            "Please set your computer's local IP address in components/MapWithSearch.tsx",
-          );
-          return;
-        }
-
         const response = await fetch(`${BACKEND_URL}/route`, {
           method: "POST",
           headers: {
@@ -147,74 +150,109 @@ export function MapWithSearch() {
     }
   };
 
+  const touchOutsideInputField = () => {
+    Keyboard.dismiss();
+    setIsDestinationFocused(false);
+    setShowStartInput(false);
+  }
+
   return (
-    <View style={styles.container}>
-      <MapView
-        ref={mapRef}
-        provider={Platform.OS === "android" ? PROVIDER_GOOGLE : undefined}
-        style={styles.map}
-        initialRegion={DEFAULT_REGION}
-        showsUserLocation={true}
-        onPress={(event) => {
-          console.log("Map tapped at:", event.nativeEvent.coordinate);
-        }}>
-        {MAPBOX_ACCESS_TOKEN && (
-          <UrlTile
-            urlTemplate={`https://api.mapbox.com/styles/v1/mapbox/streets-v11/tiles/{z}/{x}/{y}?access_token=${MAPBOX_ACCESS_TOKEN}`}
-            maximumZ={20}
-            flipY={false}
-          />
-        )}
-        {startCoords && <Marker coordinate={startCoords} title="Start" pinColor="green" />}
-        {endCoords && <Marker coordinate={endCoords} title="End" pinColor="red" />}
-        {routeCoordinates.length > 0 && (
-          <Polyline coordinates={routeCoordinates} strokeColor="#007AFF" strokeWidth={5} />
-        )}
-      </MapView>
-
-      <ThemedView style={styles.itineraryContainer}>
-        <View style={styles.inputRow}>
-          <TextInput
-            style={styles.searchInput}
-            placeholder="Enter destination"
-            placeholderTextColor="#888"
-            value={endLocation}
-            onChangeText={setEndLocation}
-            onFocus={() => setIsDestinationFocused(true)}
-            onBlur={() => setIsDestinationFocused(false)}
-          />
-          <TouchableOpacity
-            style={styles.circleButton}
-            onPress={() => {
-              if (showStartInput) {
-                setShowStartInput(false);
-              } else if (isDestinationFocused && endLocation.trim()) {
-                handleGetRoute();
-              } else {
-                setShowStartInput(true);
-              }
+    <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
+      <TouchableWithoutFeedback onPress={() => touchOutsideInputField()}>
+        <View style={styles.container}>
+          <MapView
+            ref={mapRef}
+            provider={Platform.OS === "android" ? PROVIDER_GOOGLE : undefined}
+            style={styles.map}
+            initialRegion={DEFAULT_REGION}
+            showsUserLocation={true}
+            onPress={(event) => {
+              console.log("Map tapped at:", event.nativeEvent.coordinate);
             }}>
-            <Text style={styles.circleButtonText}>
-              {showStartInput || (isDestinationFocused && endLocation.trim()) ? "→" : "+"}
-            </Text>
-          </TouchableOpacity>
-        </View>
+            {MAPBOX_ACCESS_TOKEN && (
+              <UrlTile
+                urlTemplate={`https://api.mapbox.com/styles/v1/mapbox/streets-v11/tiles/{z}/{x}/{y}?access_token=${MAPBOX_ACCESS_TOKEN}`}
+                maximumZ={20}
+                flipY={false}
+              />
+            )}
+            {startCoords && <Marker coordinate={startCoords} title="Start" pinColor="green" />}
+            {endCoords && <Marker coordinate={endCoords} title="End" pinColor="red" />}
+            {routeCoordinates.length > 0 && (
+              <Polyline coordinates={routeCoordinates} strokeColor="#007AFF" strokeWidth={5} />
+            )}
+          </MapView>
 
-        {showStartInput && (
-          <View style={styles.startInputContainer}>
-            <TextInput
-              style={styles.searchInput}
-              placeholder="Enter start location"
-              placeholderTextColor="#888"
-              value={startLocation === "My Location" ? "" : startLocation}
-              onChangeText={setStartLocation}
-              autoFocus
-              onSubmitEditing={() => setShowStartInput(false)}
-            />
-          </View>
-        )}
-      </ThemedView>
-    </View>
+          <ThemedView style={styles.itineraryContainer}>
+            <View style={styles.inputRow}>
+              <View style={{ flex: 1, position: "relative" }}>
+                <TextInput
+                  style={styles.searchInput}
+                  placeholder="Enter destination"
+                  placeholderTextColor="#888"
+                  value={endLocation}
+                  onChangeText={setEndLocation}
+                  onFocus={() => setIsDestinationFocused(true)}
+                  onSubmitEditing={() => handleGetRoute()}
+                  returnKeyType={"search"}
+                  autoCapitalize={"none"}
+                  autoComplete="off"
+                  autoCorrect={false}
+                  inputMode="search"
+                />
+                {/* if destination field focused + text in it */}
+                {isDestinationFocused && endLocation.length > 0 && (
+                  <Pressable
+                    onPress={() => setEndLocation("")}
+                    style={{
+                      position: "absolute",
+                      right: 10,
+                      top: 0,
+                      bottom: 0,
+                      justifyContent: "center",
+                      alignItems: "center",
+                      width: 30,
+                    }}
+                    hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}>
+                    <CircleX size={32} strokeWidth={1.2} />
+                  </Pressable>
+                )}
+              </View>
+              <Pressable
+                style={styles.circleButton}
+                onPress={() => {
+                  if (showStartInput) {
+                    setShowStartInput(false);
+                  } else if (isDestinationFocused && endLocation.trim()) {
+                    handleGetRoute();
+                  } else {
+                    setShowStartInput(true);
+                  }
+                }}>
+                <Text style={styles.circleButtonText}>
+                  {showStartInput || (isDestinationFocused && endLocation.trim()) ?
+                    <Search strokeWidth={1.2} />
+                  : <MapPinPlus strokeWidth={1} />}
+                </Text>
+              </Pressable>
+            </View>
+
+            {showStartInput && (
+              <View style={styles.startInputContainer}>
+                <TextInput
+                  style={styles.searchInput}
+                  placeholder="Enter start location"
+                  placeholderTextColor="#888"
+                  value={startLocation === "My Location" ? "" : startLocation}
+                  onChangeText={setStartLocation}
+                  onSubmitEditing={() => setShowStartInput(false)}
+                />
+              </View>
+            )}
+          </ThemedView>
+        </View>
+      </TouchableWithoutFeedback>
+    </KeyboardAvoidingView>
   );
 }
 
@@ -230,8 +268,8 @@ const styles = StyleSheet.create({
     bottom: 10,
     left: 10,
     right: 10,
-    backgroundColor: "rgba(255,255,255,0.9)",
-    borderRadius: 25,
+    backgroundColor: "rgba(0, 0, 0, 0.2)",
+    borderRadius: 40,
     padding: 10,
     ...Platform.select({
       ios: {
@@ -268,7 +306,7 @@ const styles = StyleSheet.create({
     width: 50,
     height: 50,
     borderRadius: 25,
-    backgroundColor: "#e0e0e0",
+    backgroundColor: "#f0f0f0",
     justifyContent: "center",
     alignItems: "center",
     marginLeft: 10,
