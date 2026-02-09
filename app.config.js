@@ -11,6 +11,8 @@ export default ({ config }) => {
     newArchEnabled: true,
     ios: {
       supportsTablet: true,
+      bundleIdentifier: "com.stevegates.asphaltmap",
+      ITSAppUsesNonExemptEncryption: false,
     },
     android: {
       adaptiveIcon: {
@@ -28,6 +30,7 @@ export default ({ config }) => {
     },
     plugins: [
       "expo-router",
+      "@maplibre/maplibre-react-native",
       [
         "expo-splash-screen",
         {
@@ -46,8 +49,13 @@ export default ({ config }) => {
       reactCompiler: true,
     },
     extra: {
+      eas: {
+        projectId: "531fa697-cf0e-49b1-810b-75ee84871f1f",
+      },
       ...config.extra,
       MAPBOX_ACCESS_TOKEN: process.env.MAPBOX_ACCESS_TOKEN,
+      BUNDLE_IDENTIFIER: process.env.BUNDLE_IDENTIFIER,
+      PROJECT_ID: process.env.PROJECT_ID,
       BACKEND_IP_ADDRESS: process.env.BACKEND_IP_ADDRESS,
     },
   };

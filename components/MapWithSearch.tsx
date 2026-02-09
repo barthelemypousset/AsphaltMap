@@ -15,7 +15,15 @@ import {
 } from "react-native";
 
 //import  { Camera, Marker, Polyline, PROVIDER_GOOGLE, UrlTile } from "react-native-maps";
-import { Camera, CameraRef, MapView, MarkerView, UserLocation } from "@maplibre/maplibre-react-native";
+import {
+  Camera,
+  CameraRef,
+  LineLayer,
+  MapView,
+  MarkerView,
+  ShapeSource,
+  UserLocation,
+} from "@maplibre/maplibre-react-native";
 
 import { CircleX, MapPinPlus, Search } from "lucide-react-native";
 import { ThemedView } from "./themed-view";
@@ -39,7 +47,7 @@ type GeoJSONPoint = {
 // geoJson LineString (rn-maps polyline)
 type GeoJSONLineString = {
   type: "LineString";
-  coordinates: [number, number][];
+  coordinates: [[number, number], [number, number], ...[number, number][]];
 };
 
 export function MapWithSearch() {
@@ -79,7 +87,7 @@ export function MapWithSearch() {
   }, []);
 
   // Get coordinates of searched location
-  const geocode = async (address: string): Promise<GeoJSONPoint | null> => {
+  const geocodeAddress = async (address: string): Promise<GeoJSONPoint | null> => {
     if (address.toLowerCase() === "my location" && userLocation.current) {
       return { type: "Point", coordinates: userLocation.current.coordinates };
     }
@@ -101,6 +109,44 @@ export function MapWithSearch() {
     return null;
   };
 
+  // Get the route via the routing engine (backend)
+  const routePoints = async (start: GeoJSONPoint, end: GeoJSONPoint): Promise<GeoJSONLineString | null> => {
+    try {
+      const response = await fetch(`${BACKEND_URL}/route`, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          start_lat: start.coordinates[1],
+          start_lon: start.coordinates[0],
+          end_lat: end.coordinates[1],
+          end_lon: end.coordinates[0],
+        }),
+      });
+
+      const data = await response.json();
+
+      if (response.ok) {
+        const route = data.route.map((point: { latitude: number; longitude: number }) => [
+          point.longitude,
+          point.latitude,
+        ]);
+        return {
+          type: "LineString",
+          coordinates: route,
+        };
+      } else {
+        Alert.alert("Failed to get route", data.detail || "An unknown error occurred.");
+        return null;
+      }
+    } catch (error) {
+      console.error("Route fetch error:", error);
+      Alert.alert("Connection Error", "Could not connect to the backend. Is it running? Is the IP address correct?");
+      return null;
+    }
+  };
+
   // Launch the search
   const handleGetRoute = async () => {
     if (!startLocation.trim() || !endLocation.trim()) {
@@ -111,42 +157,18 @@ export function MapWithSearch() {
     // Clear previous route
     setRouteCoordinates([]);
 
-    const [start, end] = await Promise.all([geocode(startLocation), geocode(endLocation)]);
+    const [start, end] = await Promise.all([geocodeAddress(startLocation), geocodeAddress(endLocation)]);
 
     if (start) setStartCoords(start);
     if (end) setEndCoords(end);
 
-    console.log(start, end);
-
     // Set position of the map on screen
     if (start && end) {
       cameraRef.current?.fitBounds(start.coordinates, end.coordinates, 40, 1000);
-
-      // Try to get the route via routing engine backend
-      try {
-        const response = await fetch(`${BACKEND_URL}/route`, {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            start_lat: start.coordinates[1],
-            start_lon: start.coordinates[0],
-            end_lat: end.coordinates[1],
-            end_lon: end.coordinates[0],
-          }),
-        });
-
-        const data = await response.json();
-
-        if (response.ok) {
-          setRouteCoordinates(data.route);
-        } else {
-          Alert.alert("Failed to get route", data.detail || "An unknown error occurred.");
-        }
-      } catch (error) {
-        console.error("Route fetch error:", error);
-        Alert.alert("Connection Error", "Could not connect to the backend. Is it running? Is the IP address correct?");
+      // Get routing between the start and end
+      const route = await routePoints(start, end);
+      if (route) {
+        setRouteCoordinates(route.coordinates);
       }
     } else {
       Alert.alert("Geocoding failed", "Could not determine coordinates for one or both locations.");
@@ -164,12 +186,8 @@ export function MapWithSearch() {
       <TouchableWithoutFeedback onPress={() => touchOutsideInputField()}>
         <View style={styles.container}>
           <MapView
-            //ref={mapRef}
-            // provider={Platform.OS === "android" ? PROVIDER_GOOGLE : undefined}
             style={styles.map}
             mapStyle={"https://tiles.openfreemap.org/styles/positron"}
-            // initialRegion={DEFAULT_REGION}
-            // showsUserLocation={true}
             onPress={(event) => {
               console.log("Map tapped at:", event.geometry);
             }}>
@@ -193,9 +211,17 @@ export function MapWithSearch() {
                 <Text>End</Text>
               </MarkerView>
             )}
-            {/* {routeCoordinates.length > 0 && (
-              <Polyline coordinates={routeCoordinates} strokeColor="#007AFF" strokeWidth={5} />
-            )} */}
+            {routeCoordinates.length > 0 && (
+              <ShapeSource id="routeSource" shape={{ type: "LineString", coordinates: routeCoordinates }}>
+                <LineLayer
+                  id="routeLine"
+                  style={{
+                    lineColor: "#007AFF",
+                    lineWidth: 5,
+                  }}
+                />
+              </ShapeSource>
+            )}
           </MapView>
 
           <ThemedView style={styles.itineraryContainer}>
