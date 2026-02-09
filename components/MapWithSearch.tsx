@@ -13,36 +13,47 @@ import {
   TouchableWithoutFeedback,
   View,
 } from "react-native";
-import MapView, { Marker, Polyline, PROVIDER_GOOGLE, UrlTile } from "react-native-maps";
+
+//import  { Camera, Marker, Polyline, PROVIDER_GOOGLE, UrlTile } from "react-native-maps";
+import { Camera, CameraRef, MapView, MarkerView, UserLocation } from "@maplibre/maplibre-react-native";
+
+import { CircleX, MapPinPlus, Search } from "lucide-react-native";
 import { ThemedView } from "./themed-view";
-import { CircleX, MapPinPlus, MapPlus, Search, Send } from "lucide-react-native";
 
 const MAPBOX_ACCESS_TOKEN = Constants.expoConfig?.extra?.MAPBOX_ACCESS_TOKEN;
 
 const BACKEND_IP_ADDRESS = Constants.expoConfig?.extra?.BACKEND_IP_ADDRESS;
 const BACKEND_URL = `http://${BACKEND_IP_ADDRESS}:8000`;
 
-// Default region to center the map (e.g., Paris, France)
-const DEFAULT_REGION = {
-  latitude: 48.8566,
-  longitude: 2.3522,
-  latitudeDelta: 0.0922,
-  longitudeDelta: 0.0421,
+// Default region to center the map (e.g., Lille, France)
+const DEFAULT_REGION = [3.057256, 50.62925];
+
+type Coords = [number, number];
+
+// geoJson point (Lon, Lat)
+type GeoJSONPoint = {
+  type: "Point";
+  coordinates: [number, number];
 };
 
-type Coords = { latitude: number; longitude: number };
+// geoJson LineString (rn-maps polyline)
+type GeoJSONLineString = {
+  type: "LineString";
+  coordinates: [number, number][];
+};
 
 export function MapWithSearch() {
   const [startLocation, setStartLocation] = useState("");
   const [endLocation, setEndLocation] = useState("");
-  const [startCoords, setStartCoords] = useState<Coords | null>(null);
-  const [endCoords, setEndCoords] = useState<Coords | null>(null);
+  const [startCoords, setStartCoords] = useState<GeoJSONPoint | null>(null);
+  const [endCoords, setEndCoords] = useState<GeoJSONPoint | null>(null);
   const [isDestinationFocused, setIsDestinationFocused] = useState(false);
   const [showStartInput, setShowStartInput] = useState(false);
   const [routeCoordinates, setRouteCoordinates] = useState<Coords[]>([]);
 
-  const mapRef = useRef<MapView>(null);
-  const userLocation = useRef<Coords | null>(null);
+  //const mapRef = useRef<MapView>(null);
+  const cameraRef = useRef<CameraRef>(null);
+  const userLocation = useRef<GeoJSONPoint | null>(null);
 
   // Get user geolocation
   useEffect(() => {
@@ -55,18 +66,11 @@ export function MapWithSearch() {
 
       const location = await Location.getCurrentPositionAsync({});
       userLocation.current = {
-        latitude: location.coords.latitude,
-        longitude: location.coords.longitude,
+        type: "Point",
+        coordinates: [location.coords.longitude, location.coords.latitude],
       };
 
-      mapRef.current?.animateToRegion(
-        {
-          ...userLocation.current,
-          latitudeDelta: 0.05,
-          longitudeDelta: 0.02,
-        },
-        1000,
-      );
+      cameraRef.current?.flyTo(userLocation.current.coordinates, 1000);
 
       setStartLocation("My Location");
     };
@@ -75,9 +79,9 @@ export function MapWithSearch() {
   }, []);
 
   // Get coordinates of searched location
-  const geocode = async (address: string): Promise<Coords | null> => {
+  const geocode = async (address: string): Promise<GeoJSONPoint | null> => {
     if (address.toLowerCase() === "my location" && userLocation.current) {
-      return userLocation.current;
+      return { type: "Point", coordinates: userLocation.current.coordinates };
     }
 
     const geocodingUrl = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(
@@ -89,7 +93,7 @@ export function MapWithSearch() {
       const data = await response.json();
       if (data.features && data.features.length > 0) {
         const [longitude, latitude] = data.features[0].center;
-        return { latitude, longitude };
+        return { type: "Point", coordinates: [longitude, latitude] };
       }
     } catch (error) {
       console.error("Geocoding API error:", error);
@@ -112,14 +116,13 @@ export function MapWithSearch() {
     if (start) setStartCoords(start);
     if (end) setEndCoords(end);
 
+    console.log(start, end);
+
     // Set position of the map on screen
     if (start && end) {
-      mapRef.current?.fitToCoordinates([start, end], {
-        edgePadding: { top: 50, right: 50, bottom: 150, left: 50 },
-        animated: true,
-      });
+      cameraRef.current?.fitBounds(start.coordinates, end.coordinates, 40, 1000);
 
-      // Try to get the route via our routing engine backend
+      // Try to get the route via routing engine backend
       try {
         const response = await fetch(`${BACKEND_URL}/route`, {
           method: "POST",
@@ -127,10 +130,10 @@ export function MapWithSearch() {
             "Content-Type": "application/json",
           },
           body: JSON.stringify({
-            start_lat: start.latitude,
-            start_lon: start.longitude,
-            end_lat: end.latitude,
-            end_lon: end.longitude,
+            start_lat: start.coordinates[1],
+            start_lon: start.coordinates[0],
+            end_lat: end.coordinates[1],
+            end_lon: end.coordinates[0],
           }),
         });
 
@@ -154,33 +157,45 @@ export function MapWithSearch() {
     Keyboard.dismiss();
     setIsDestinationFocused(false);
     setShowStartInput(false);
-  }
+  };
 
   return (
     <KeyboardAvoidingView style={{ flex: 1 }} behavior={Platform.OS === "ios" ? "padding" : "height"}>
       <TouchableWithoutFeedback onPress={() => touchOutsideInputField()}>
         <View style={styles.container}>
           <MapView
-            ref={mapRef}
-            provider={Platform.OS === "android" ? PROVIDER_GOOGLE : undefined}
+            //ref={mapRef}
+            // provider={Platform.OS === "android" ? PROVIDER_GOOGLE : undefined}
             style={styles.map}
-            initialRegion={DEFAULT_REGION}
-            showsUserLocation={true}
+            mapStyle={"https://tiles.openfreemap.org/styles/positron"}
+            // initialRegion={DEFAULT_REGION}
+            // showsUserLocation={true}
             onPress={(event) => {
-              console.log("Map tapped at:", event.nativeEvent.coordinate);
+              console.log("Map tapped at:", event.geometry);
             }}>
-            {MAPBOX_ACCESS_TOKEN && (
-              <UrlTile
-                urlTemplate={`https://api.mapbox.com/styles/v1/mapbox/streets-v11/tiles/{z}/{x}/{y}?access_token=${MAPBOX_ACCESS_TOKEN}`}
-                maximumZ={20}
-                flipY={false}
-              />
+            <Camera
+              ref={cameraRef}
+              defaultSettings={{
+                centerCoordinate: DEFAULT_REGION,
+                zoomLevel: 16,
+                animationDuration: 0,
+              }}
+            />
+            <UserLocation />
+
+            {startCoords && (
+              <MarkerView coordinate={startCoords.coordinates}>
+                <Text>Start</Text>
+              </MarkerView>
             )}
-            {startCoords && <Marker coordinate={startCoords} title="Start" pinColor="green" />}
-            {endCoords && <Marker coordinate={endCoords} title="End" pinColor="red" />}
-            {routeCoordinates.length > 0 && (
+            {endCoords && (
+              <MarkerView coordinate={endCoords.coordinates}>
+                <Text>End</Text>
+              </MarkerView>
+            )}
+            {/* {routeCoordinates.length > 0 && (
               <Polyline coordinates={routeCoordinates} strokeColor="#007AFF" strokeWidth={5} />
-            )}
+            )} */}
           </MapView>
 
           <ThemedView style={styles.itineraryContainer}>
